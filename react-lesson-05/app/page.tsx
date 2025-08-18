@@ -1,159 +1,322 @@
-"use client";
-import React, { useState, useEffect } from "react";
+'use client'
 
-export default function ElevatorApp() {
-  const [selectedFloors, setSelectedFloors] = useState([]);
-  const [currentFloor, setCurrentFloor] = useState(1);
-  const [isMoving, setIsMoving] = useState(false);
-  const [queue, setQueue] = useState([]);
-  const [doorOpen, setDoorOpen] = useState(true);
+import { useEffect, useState } from 'react'
 
-  // エレベーターの移動処理
-  useEffect(() => {
-    if (queue.length > 0 && !isMoving && doorOpen) {
-      const nextFloor = queue[0];
-      if (nextFloor !== currentFloor) {
-        // まずドアを閉める
-        setDoorOpen(false);
+interface FloorPositions {
+  [key: number]: number
+}
+
+export default function ElevatorSimulator() {
+  const [currentFloor, setCurrentFloor] = useState<number>(1)
+  const [isMoving, setIsMoving] = useState<boolean>(false)
+  const [floorQueue, setFloorQueue] = useState<number[]>([])
+  const [doorsOpen, setDoorsOpen] = useState<boolean>(true) // 初期状態をドア開に変更
+  const [waitingForDoorClose, setWaitingForDoorClose] = useState<boolean>(false)
+
+  const floorPositions: FloorPositions = {
+    1: 420,
+    2: 350,
+    3: 280,
+    4: 210,
+    5: 140,
+    6: 70
+  }
+
+  const selectFloor = (floor: number) => {
+    // ドアが閉じている時は階数ボタンを押せない
+    if (!doorsOpen) return
+    
+    if (floor === currentFloor) return
+
+    // キューに追加（重複チェック）
+    if (!floorQueue.includes(floor)) {
+      setFloorQueue(prev => [...prev, floor])
+      updateButtonState(floor, 'selected')
+    }
+  }
+
+  const openDoor = () => {
+    if (isMoving) return
+
+    setDoorsOpen(true)
+    setWaitingForDoorClose(false)
+    const elevatorCar = document.getElementById('elevator-car')
+    if (elevatorCar) {
+      elevatorCar.classList.add('doors-open')
+    }
+
+    updateStatus('停止中・ドア開')
+    updateDoorStatus('ドア: 開いています')
+    updateButtonStates('open-btn', true)
+    updateButtonStates('close-btn', false)
+    
+    // ドアが開いた時に階数ボタンを有効化
+    updateFloorButtonsDisability(false)
+  }
+
+  const closeDoor = () => {
+    if (isMoving) return
+
+    setDoorsOpen(false)
+    const elevatorCar = document.getElementById('elevator-car')
+    if (elevatorCar) {
+      elevatorCar.classList.remove('doors-open')
+    }
+
+    updateStatus('停止中・ドア閉')
+    updateDoorStatus('ドア: 閉じています')
+    updateButtonStates('open-btn', false)
+    updateButtonStates('close-btn', true)
+    
+    // ドアが閉じた時に階数ボタンを無効化
+    updateFloorButtonsDisability(true)
+
+    // ドアを閉じた後、キューがあれば移動開始
+    if (floorQueue.length > 0) {
+      updateStatus('移動準備中...')
+      setTimeout(() => {
+        if (floorQueue.length > 0) {
+          const nextFloor = floorQueue[0]
+          setFloorQueue(prev => prev.slice(1))
+          moveToFloor(nextFloor)
+        }
+      }, 500)
+    }
+
+    setWaitingForDoorClose(false)
+  }
+
+  const clearQueue = () => {
+    if (isMoving) return // 移動中は解除不可
+
+    setFloorQueue([])
+    updateAllButtonStates()
+  }
+
+  const processQueue = (queue: number[]) => {
+    // この関数は移動完了後の次の階層処理にのみ使用
+    if (queue.length === 0 || isMoving || doorsOpen) return
+
+    const nextFloor = queue[0]
+    setFloorQueue(prev => prev.slice(1))
+    moveToFloor(nextFloor)
+  }
+
+  const moveToFloor = (targetFloor: number) => {
+    if (isMoving) return
+
+    setIsMoving(true)
+    updateStatus(`${targetFloor}階へ移動中...`)
+
+    const elevatorCar = document.getElementById('elevator-car')
+    if (elevatorCar) {
+      const targetPosition = floorPositions[targetFloor]
+      elevatorCar.style.top = targetPosition + 'px'
+    }
+
+    // 移動完了後の処理
+    setTimeout(() => {
+      setCurrentFloor(targetFloor)
+      setIsMoving(false)
+
+      // UI更新
+      updateCurrentFloor(`${targetFloor}F`)
+      updateStatus('到着・ドア開')
+      
+      // 到着時に自動的にドアを開く
+      setDoorsOpen(true)
+      const elevatorCar = document.getElementById('elevator-car')
+      if (elevatorCar) {
+        elevatorCar.classList.add('doors-open')
+      }
+      updateDoorStatus('ドア: 開いています')
+      updateButtonStates('open-btn', true)
+      updateButtonStates('close-btn', false)
+      
+      // 階数ボタンを有効化
+      updateFloorButtonsDisability(false)
+
+      // ボタン状態更新
+      updateAllButtonStates()
+
+      // 次の階層があれば待機（ドアが閉じられるまで）
+      // 自動で次の階層には移動しない - ユーザーが手動でドアを閉じる必要がある
+
+    }, 2000) // 2秒の移動時間
+  }
+
+  const updateButtonState = (floor: number, state: string) => {
+    const button = document.getElementById(`btn-${floor}`)
+    if (button) {
+      button.className = `floor-button ${state}`
+    }
+  }
+
+  const updateAllButtonStates = () => {
+    for (let floor = 1; floor <= 6; floor++) {
+      const button = document.getElementById(`btn-${floor}`) as HTMLButtonElement
+      if (button) {
+        if (floor === currentFloor) {
+          button.className = 'floor-button current'
+        } else if (floorQueue.includes(floor)) {
+          button.className = 'floor-button selected'
+        } else {
+          button.className = 'floor-button'
+        }
         
-        // ドアが閉まるまで少し待ってから移動開始
-        setTimeout(() => {
-          setIsMoving(true);
-          
-          // 移動時間計算（1階につき2400ms）
-          const moveTime = Math.abs(nextFloor - currentFloor) * 2400;
-          
-          setTimeout(() => {
-            setCurrentFloor(nextFloor);
-            setQueue(prev => prev.slice(1));
-            setIsMoving(false);
-            
-            // 到着後ドアを開ける
-            setTimeout(() => {
-              setDoorOpen(true);
-            }, 500);
-          }, moveTime);
-        }, 600); // ドア閉鎖時間
-      } else {
-        setQueue(prev => prev.slice(1));
+        // ドアの状態に応じてボタンの有効/無効を設定
+        button.disabled = !doorsOpen
       }
     }
-  }, [queue, isMoving, currentFloor, doorOpen]);
+  }
 
-  const handleFloorClick = (num) => {
-    if (num === currentFloor) return;
-    
-    if (selectedFloors.includes(num)) {
-      setSelectedFloors(prev => prev.filter(f => f !== num));
-    } else {
-      setSelectedFloors(prev => [...prev, num]);
+  const updateFloorButtonsDisability = (disabled: boolean) => {
+    for (let floor = 1; floor <= 6; floor++) {
+      const button = document.getElementById(`btn-${floor}`) as HTMLButtonElement
+      if (button) {
+        button.disabled = disabled
+      }
     }
-  };
+  }
 
-  const handleStartMovement = () => {
-    if (selectedFloors.length === 0) return;
-    
-    // 効率的な順序でソート
-    const sortedFloors = [...selectedFloors].sort((a, b) => {
-      const distA = Math.abs(a - currentFloor);
-      const distB = Math.abs(b - currentFloor);
-      return distA - distB;
-    });
-    
-    setQueue(prev => [...prev, ...sortedFloors]);
-    setSelectedFloors([]);
-  };
+  const updateStatus = (status: string) => {
+    const element = document.getElementById('elevator-status')
+    if (element) element.textContent = status
+  }
 
-  const handleClearSelection = () => {
-    setSelectedFloors([]);
-  };
+  const updateDoorStatus = (status: string) => {
+    const element = document.getElementById('door-status')
+    if (element) element.textContent = status
+  }
+
+  const updateCurrentFloor = (floor: string) => {
+    const element = document.getElementById('current-floor')
+    if (element) element.textContent = floor
+  }
+
+  const updateButtonStates = (buttonId: string, disabled: boolean) => {
+    const button = document.getElementById(buttonId) as HTMLButtonElement
+    if (button) button.disabled = disabled
+  }
+
+  // 初期化処理
+  useEffect(() => {
+    updateAllButtonStates()
+    // 初期状態はドア開なので、開ボタンは無効、閉ボタンは有効
+    const openBtn = document.getElementById('open-btn') as HTMLButtonElement
+    const closeBtn = document.getElementById('close-btn') as HTMLButtonElement
+    if (openBtn) openBtn.disabled = true
+    if (closeBtn) closeBtn.disabled = false
+    
+    // 初期状態のドア表示
+    const elevatorCar = document.getElementById('elevator-car')
+    if (elevatorCar) {
+      elevatorCar.classList.add('doors-open')
+    }
+    updateDoorStatus('ドア: 開いています')
+  }, [])
+
+  // キュー更新時の処理
+  useEffect(() => {
+    const queueList = document.getElementById('queue-list')
+    if (queueList) {
+      if (floorQueue.length === 0) {
+        queueList.textContent = 'なし'
+      } else {
+        queueList.innerHTML = floorQueue.map(floor => 
+          `<span class="queue-item">${floor}F</span>`
+        ).join('')
+      }
+    }
+  }, [floorQueue])
+
+  // ドア状態変更時の処理
+  useEffect(() => {
+    updateAllButtonStates()
+  }, [doorsOpen, currentFloor, floorQueue])
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-8 gap-8">
-      {/* エレベーター表示部 */}
-      <div className="bg-black rounded-lg p-6 shadow-lg">
-        <div className="text-center">
-          <div className="text-4xl font-bold text-green-400 mb-2 font-mono">
-            {currentFloor}階
+    <div className="elevator-container">
+      <div className="control-panel">
+        <div className="panel-title">操作パネル</div>
+        
+        {[6, 5, 4, 3, 2, 1].map(floor => (
+          <button
+            key={floor}
+            className={`floor-button ${
+              currentFloor === floor ? 'current' :
+              floorQueue.includes(floor) ? 'selected' : ''
+            }`}
+            onClick={() => selectFloor(floor)}
+            id={`btn-${floor}`}
+            disabled={!doorsOpen}
+          >
+            {floor}F
+          </button>
+        ))}
+        
+        <button className="clear-button" onClick={clearQueue}>
+          全解除
+        </button>
+        
+        <div className="door-controls">
+          <div className="door-controls-title">ドア操作</div>
+          <button
+            className="door-button"
+            onClick={openDoor}
+            id="open-btn"
+          >
+            ◀|▶<br /><span style={{ fontSize: '12px' }}>開</span>
+          </button>
+          <button
+            className="door-button"
+            onClick={closeDoor}
+            id="close-btn"
+          >
+            ▶|◀<br /><span style={{ fontSize: '12px' }}>閉</span>
+          </button>
+        </div>
+      </div>
+      
+      <div className="elevator-shaft">
+        {[6, 5, 4, 3, 2, 1].map((floor) => (
+          <div
+            key={floor}
+            className={`floor-indicator floor-${floor}`}
+          >
+            {floor}F
           </div>
-          <div className="text-sm text-gray-300">
-            {isMoving ? '移動中...' : doorOpen ? 'ドア開放中' : 'ドア閉鎖中'}
-          </div>
-          
-          {/* ドア表示 */}
-          <div className="mt-4 relative h-12 bg-gray-600 rounded overflow-hidden">
-            <div className={`absolute inset-0 flex transition-transform duration-500 ${
-              doorOpen ? '' : 'transform scale-x-0'
-            }`}>
-              <div className={`w-1/2 bg-gray-300 border-r border-gray-500 transition-transform duration-500 ${
-                doorOpen ? 'transform translate-x-0' : 'transform -translate-x-full'
-              }`}></div>
-              <div className={`w-1/2 bg-gray-300 border-l border-gray-500 transition-transform duration-500 ${
-                doorOpen ? 'transform translate-x-0' : 'transform translate-x-full'
-              }`}></div>
+        ))}
+        
+        <div className="elevator-car" id="elevator-car">
+          <div className="elevator-interior">こんにちは！</div>
+          <div className="elevator-door door-left"></div>
+          <div className="elevator-door door-right"></div>
+        </div>
+      </div>
+      
+      <div className="status-panel">
+        <div className="status-title">状態表示</div>
+        <div className="current-floor" id="current-floor">1F</div>
+        <div className="elevator-status" id="elevator-status">停止中・ドア開</div>
+        
+        <div className="queue-section">
+          <div className="queue-title">行き先リスト</div>
+          <div className="queue-list" id="queue-list">なし</div>
+        </div>
+        
+        <div className="status-info">
+          <div className="status-text">
+            <div id="door-status">ドア: 開いています</div>
+            <div className="next-action">
+              {!doorsOpen && floorQueue.length > 0 ? 'エレベーターが移動します...' : 
+               !doorsOpen ? '階数ボタンはドアが開いている時のみ押せます' : 
+               floorQueue.length > 0 ? '「閉」ボタンを押すと移動します' :
+               '階数を選択してください'}
             </div>
           </div>
         </div>
       </div>
-
-      {/* 階数ボタン */}
-      <div className="grid grid-cols-3 gap-4">
-        {[1, 2, 3, 4, 5, 6].map((num) => (
-          <button
-            key={num}
-            onClick={() => handleFloorClick(num)}
-            className={`relative py-2 px-4 rounded font-bold transition-colors ${
-              currentFloor === num
-                ? "bg-green-600 text-white"
-                : selectedFloors.includes(num)
-                ? "bg-blue-800 text-white"
-                : queue.includes(num)
-                ? "bg-yellow-500 text-black animate-pulse"
-                : "bg-blue-600 hover:bg-blue-700 text-white"
-            }`}
-          >
-            {num}
-            {selectedFloors.includes(num) && (
-              <div className="absolute top-1 right-1 w-2 h-2 bg-white rounded-full"></div>
-            )}
-            {queue.includes(num) && (
-              <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* 操作ボタン */}
-      {selectedFloors.length > 0 && (
-        <div className="flex gap-4">
-          <button
-            onClick={handleStartMovement}
-            className="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-6 rounded"
-          >
-            ▶|◀ 移動開始 ({selectedFloors.length})
-          </button>
-          <button
-            onClick={handleClearSelection}
-            className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded"
-          >
-            ◀|▶ クリア
-          </button>
-        </div>
-      )}
-
-      {/* 選択中の階数表示 */}
-      {selectedFloors.length > 0 && (
-        <div className="text-lg font-semibold text-gray-800">
-          選択中: {selectedFloors.sort((a, b) => a - b).join(', ')}階
-        </div>
-      )}
-
-      {/* 待機中の階数表示 */}
-      {queue.length > 0 && (
-        <div className="text-lg font-semibold text-orange-600">
-          待機中: {queue.join(', ')}階
-        </div>
-      )}
     </div>
-  );
+  )
 }
